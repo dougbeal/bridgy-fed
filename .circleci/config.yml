@@ -1,0 +1,65 @@
+# CircleCI automatically reads this file from our repo and uses it for
+# configuration. Docs: https://circleci.com/docs/2.0/configuration-reference/
+version: 2
+
+jobs:
+  build:
+    docker:
+      - image: google/cloud-sdk
+      - image: python:2.7.12
+
+    environment:
+      PYTHONPATH: $PYTHONPATH:/opt/google-cloud-sdk/platform/google_appengine
+      COVERAGE_FILE: $CIRCLE_ARTIFACTS/.coverage
+
+    steps:
+      - restore_cache:
+          keys:
+            - dependencies
+      - checkout
+      - run:
+          name: Dependencies
+          command: |
+            virtualenv local
+            . local/bin/activate
+            # granary and oauth-dropins master at head. (see pip install -e 's below.)
+            cd /tmp; git clone https://github.com/snarfed/oauth-dropins.git
+            cd /tmp/oauth-dropins; git submodule sync; git submodule update --init
+            cd /tmp/oauth-dropins/oauth_dropins/webutil; git checkout master; git pull
+            pip install -e /tmp/oauth-dropins/
+            pip install -e git+https://github.com/snarfed/granary.git#egg=granary
+            /opt/google-cloud-sdk/bin/gcloud -q components install app-engine-python app-engine-python-extras
+            ln -s $VIRTUAL_ENV local  # we use app engine's vendor module to point here
+            pip install coverage coveralls  # for https://coveralls.io/
+            #
+            . local/bin/activate
+            python -m coverage run --source=. -m unittest discover -v
+            python -m coverage html -d $CIRCLE_ARTIFACTS
+            # send coverage data to coveralls
+            if [ "$COVERALLS_REPO_TOKEN" != "" ]; then coveralls; fi
+
+      - save_cache:
+          key: dependencies
+          paths:
+            - local
+
+  # test:
+  #   docker:
+  #     - image: python:2.7.12
+  #     - image: google/cloud-sdk
+
+  #   steps:
+  #     - checkout
+  #     - run:
+  #         name: test
+  #         command: |
+
+
+# workflows:
+#   version: 2
+#   build_and_test:
+#     jobs:
+#       - build
+#       - test:
+#           requires:
+#             - build
